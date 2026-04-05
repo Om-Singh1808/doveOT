@@ -1,16 +1,18 @@
 import subprocess
 import os
 import asyncio
+from pathlib import Path
 
 class SlicerBridge:
-    def __init__(self, slicer_path: str = "prusa-slicer-console.exe", output_dir: str = "../output/gcode"):
+    def __init__(self, slicer_path: str = "prusa-slicer-console.exe", output_dir: str | None = None):
         self.slicer_path = slicer_path
-        self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
+        default_output = Path(__file__).resolve().parents[2] / "output" / "gcode"
+        self.output_dir = Path(output_dir) if output_dir else default_output
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
     async def slice_stl(self, stl_path: str, settings: dict) -> str:
         filename = os.path.basename(stl_path).replace(".stl", ".gcode")
-        output_gcode_path = os.path.join(self.output_dir, filename)
+        output_gcode_path = str(self.output_dir / filename)
         
         # Basic CLI generation arguments mapped from recommended settings
         cmd = [
