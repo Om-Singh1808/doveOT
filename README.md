@@ -9,8 +9,8 @@ Design and 3D print real-world objects using AI intent interpretation and an emb
 - **Python** 3.10+ with pip
 - **Node.js** 18+ with npm
 - **No standalone Blender install required** (backend embeds Blender engine through `bpy`)
-- **PrusaSlicer** (optional for G-code, mock used if missing)
-- **OpenAI API Key**
+- **No external slicer install required** (native in-process slicer is included)
+- **Ollama** running locally (for in-app AI interpretation)
 
 ---
 
@@ -23,7 +23,8 @@ cd backend
 python -m venv venv
 .\venv\Scripts\activate   # Windows
 pip install -r requirements.txt
-cp ../.env.example .env   # Add your OPENAI_API_KEY
+cp ../.env.example .env
+ollama pull qwen2.5:7b
 python main.py
 ```
 
@@ -55,7 +56,7 @@ npm run start
 3. Backend interprets intent into geometry parameters
 4. Embedded CAD engine generates STL internally (`bpy` backend, with local fallback)
 5. Printability analyzer scores overhang risk and generates print settings
-6. Slicer creates G-code (or mock output when slicer CLI is unavailable)
+6. Native slicer creates G-code directly inside backend
 
 ---
 
@@ -79,4 +80,5 @@ DoveOT/
 - **Archetypes**: MVP currently ships with native `stand` generation; others can be added incrementally
 - **Transfer Functions**: Mathematical mappings from interpreted dimensions to CAD parameters
 - **Overhang Detection**: Face-normal analysis with trimesh (45° threshold)
-- **Slicer**: PrusaSlicer CLI with graceful fallback to mock G-code
+- **Slicer**: Native in-process slicing service with graceful fallback to mock G-code
+- **Thinking Engine**: Local Ollama chat model for prompt-to-geometry interpretation

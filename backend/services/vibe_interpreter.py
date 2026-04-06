@@ -1,38 +1,18 @@
 import os
-from openai import AsyncOpenAI
 import json
+import re
+import httpx
 from models.vibe_vector import VibeParamVector
 from typing import Dict, Optional
 
 class VibeInterpreter:
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if self.api_key:
-            self.client = AsyncOpenAI(api_key=self.api_key)
-        else:
-            self.client = None
+    def __init__(self):
+        self.ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        self.ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+        self.timeout_sec = float(os.environ.get("OLLAMA_TIMEOUT_SEC", "60"))
 
     async def interpret_prompt(self, prompt: str, overrides: Optional[Dict[str, float]] = None) -> VibeParamVector:
-        if not self.client:
-            # Fallback to a default vector if no API key is provided
-            print("WARNING: No OPENAI_API_KEY set. Returning default vibe vector.")
-            vibe = VibeParamVector(
-                archetype="stand",
-                softness=0.5,
-                complexity=0.5,
-                weight=0.5,
-                symmetry=0.8,
-                fluidity=0.2,
-                density=0.5,
-                height_ratio=0.5,
-                taper=0.3,
-                description=prompt
-            )
-            if overrides:
-                vibe.apply_overrides(overrides)
-            return vibe
-
-        system_message = """You are a design parameter interpreter. Given a natural language description 
+        system_message = """You are a design parameter interpreter. Given a natural language description
 of a desired 3D-printed object, output a JSON object with these fields representing the vibe.
 
 - archetype: one of ["stand", "vessel", "box", "sculpture", "bracket", "lamp"]
@@ -49,16 +29,7 @@ of a desired 3D-printed object, output a JSON object with these fields represent
 Respond ONLY with valid JSON."""
 
         try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={ "type": "json_object" }
-            )
-            content = response.choices[0].message.content
-            vibe_data = json.loads(content)
+            vibe_data = await self._ask_ollama(system_message, prompt)
             
             vibe = VibeParamVector(**vibe_data)
             
@@ -68,5 +39,57 @@ Respond ONLY with valid JSON."""
             return vibe
             
         except Exception as e:
-            print(f"Error interpreting vibe: {e}")
-            raise e
+            print(f"Ollama interpretation error: {e}. Falling back to defaults.")
+            vibe = self._default_vector(prompt)
+            if overrides:
+                vibe.apply_overrides(overrides)
+            return vibe
+
+    async def _ask_ollama(self, system_message: str, prompt: str) -> Dict:
+        url = f"{self.ollama_base_url.rstrip('/')}/api/chat"
+        payload = {
+            "model": self.ollama_model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0.2,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout_sec) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+        content = data.get("message", {}).get("content", "")
+        if not content:
+            raise ValueError("Ollama returned an empty response")
+
+        return self._safe_json_parse(content)
+
+    def _safe_json_parse(self, content: str) -> Dict:
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            if not match:
+                raise
+            return json.loads(match.group(0))
+
+    def _default_vector(self, prompt: str) -> VibeParamVector:
+        return VibeParamVector(
+            archetype="stand",
+            softness=0.5,
+            complexity=0.5,
+            weight=0.5,
+            symmetry=0.8,
+            fluidity=0.2,
+            density=0.5,
+            height_ratio=0.5,
+            taper=0.3,
+            description=prompt,
+        )
